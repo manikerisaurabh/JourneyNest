@@ -125,6 +125,7 @@ app.post("/listings/:id/reviews", validateReview, wrapAsync(async (req, res) => 
     res.redirect(`/listings/${id}`);
 }));
 
+//delete review
 app.delete("/listings/:id/reviews/:reviewID", async (req, res) => {
     console.log("delete review page")
     const { id, reviewID } = req.params;
