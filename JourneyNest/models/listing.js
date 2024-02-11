@@ -26,6 +26,7 @@ const listingSchema = new Schema({
     }]
 });
 
+//this will delete all the reviews which are present into the perticular object in review section
 listingSchema.post("findOneAndDelete", async (listing) => {
     if (listing) {
         await Review.deleteMany({ _id: { $in: listing.reviews } });
