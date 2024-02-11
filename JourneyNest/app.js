@@ -13,7 +13,6 @@ const ExpressError = require("./utils/ExpessError");
 const { listingSchema } = require("./schema");
 const Review = require("./models/review");
 const { reviewSchema } = require("./schema");
-const review = require("./models/review");
 
 
 const MONGO_URL = "mongodb://127.0.0.1:27017/journeynest"
@@ -80,8 +79,6 @@ app.get("/listings/new", (req, res) => {
 app.get("/listings/:id", wrapAsync(async (req, res) => {
     let { id } = req.params;
     const list = await Listing.findById(id).populate("reviews");
-    const reviews = list.reviews;
-    console.log("these are the revies : " + reviews)
 
     res.render("listings/show.ejs", { list })
 }));
@@ -128,6 +125,13 @@ app.post("/listings/:id/reviews", validateReview, wrapAsync(async (req, res) => 
     res.redirect(`/listings/${id}`);
 }));
 
+app.delete("/listings/:id/reviews/:reviewID", async (req, res) => {
+    console.log("delete review page")
+    const { id, reviewID } = req.params;
+    await Listing.findByIdAndUpdate(id, { $pull: { reviews: reviewID } });
+    await Review.findByIdAndDelete(reviewID);
+    res.redirect(`/listings/${id}`);
+})
 
 
 
