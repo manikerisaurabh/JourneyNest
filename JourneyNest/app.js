@@ -1,23 +1,37 @@
+if (process.env.NODE_ENV != "production") {
+    require("dotenv").config();
+}
+
+
 const express = require("express");
 const app = express();
 const mongoose = require("mongoose");
 const cors = require("cors");
 
 
-const Listing = require("./models/listing");
 const path = require("path");
 const methodOverride = require("method-override");
 const ejsMate = require("ejs-mate");
-const wrapAsync = require("./utils/wrapAsync");
 const ExpressError = require("./utils/ExpessError");
-const { listingSchema } = require("./schema");
-const Review = require("./models/review");
-const { reviewSchema } = require("./schema");
+const session = require("express-session");
+const MongoStore = require('connect-mongo');
+const flash = require("connect-flash");
+const passport = require("passport");
+const LocalStrategy = require("passport-local");
 
 
-const MONGO_URL = "mongodb://127.0.0.1:27017/journeynest"
+const User = require("./models/user.js");
+
+const listingRouter = require("./routes/listing.js");
+const reviewRouter = require("./routes/review.js");
+const userRouter = require("./routes/user.js");
+const { nextTick } = require("process");
+
+//const MONGO_URL = "mongodb://127.0.0.1:27017/journeynest"
+const Db_url = process.env.ATLASDB_URL;
+
 async function main() {
-    await mongoose.connect(MONGO_URL);
+    await mongoose.connect(Db_url);
 }
 app.use(cors());
 app.set("view engine", "ejs");
@@ -33,106 +47,71 @@ main()
     })
     .catch(err => {
         console.log("ERROR DURING DB CONNECTION : " + err);
-    })
+    });
 
 
-app.get("/", (req, res) => {
-    res.send("this is home route");
+
+const store = MongoStore.create({
+    mongoUrl: Db_url,
+    crypto: {
+        secret: process.env.SECRET,
+    },
+    touchAfter: 24 * 3600
 });
 
-//validating the data coming from cliet with the help of joi package
-const validateListing = (req, res, next) => {
-    let { error } = listingSchema.validate(req.body);
-    if (error) {
-        let errMsg = error.details.map((el) => el.message).join(",");
-        throw new ExpressError(400, errMsg)
-    } else {
-        next();
-    }
-}
-
-//validating the review coming for the post
-const validateReview = (req, res, next) => {
-    let { error } = reviewSchema.validate(req.body);
-    if (error) {
-        let errMsg = error.details.map((el) => el.message).join(",");
-        throw new ExpressError(400, errMsg);
-    } else {
-        next();
-    }
-}
-
-//index route
-app.get("/listings", wrapAsync(async (req, res, next) => {
-
-    const allListing = await Listing.find()
-    res.render("listings/index.ejs", { allListing });
-    //res.send({ allListing }
-}));
-
-//new listing
-app.get("/listings/new", (req, res) => {
-    res.render("listings/new.ejs")
-});
-
-//show route
-app.get("/listings/:id", wrapAsync(async (req, res) => {
-    let { id } = req.params;
-    const list = await Listing.findById(id).populate("reviews");
-
-    res.render("listings/show.ejs", { list })
-}));
-
-//add new listing into db 
-app.post("/listings", validateListing, wrapAsync(async (req, res, next) => {
-
-    let newListing = new Listing(req.body.listing);
-    await newListing.save();
-    res.redirect("/listings");
-}));
-
-//edit route
-app.get("/listings/:id/edit", wrapAsync(async (req, res) => {
-    let { id } = req.params;
-    const listing = await Listing.findById(id);
-    res.render("listings/edit.ejs", { listing });
-}));
-
-//update edited info into database
-app.put("/listings/:id", validateListing, wrapAsync(async (req, res) => {
-    let { id } = req.params
-    await Listing.findByIdAndUpdate(id, { ...req.body.listing });
-    res.redirect(`/listings/${id}`);
-}));
-
-//delete route
-app.delete("/listings/:id", wrapAsync(async (req, res) => {
-    const { id } = req.params;
-    await Listing.findByIdAndDelete(id);
-    res.redirect("/listings")
-}));
-
-//review route
-//post
-app.post("/listings/:id/reviews", validateReview, wrapAsync(async (req, res) => {
-    const { id } = req.params;
-    let listing = await Listing.findById(id);
-    let newReview = new Review(req.body.review)
-    listing.reviews.push(newReview);
-
-    await newReview.save();
-    await listing.save();
-    res.redirect(`/listings/${id}`);
-}));
-
-//delete review
-app.delete("/listings/:id/reviews/:reviewID", async (req, res) => {
-    console.log("delete review page")
-    const { id, reviewID } = req.params;
-    await Listing.findByIdAndUpdate(id, { $pull: { reviews: reviewID } });
-    await Review.findByIdAndDelete(reviewID);
-    res.redirect(`/listings/${id}`);
+store.on("error", () => {
+    console.log("Error in mongo session store " + err)
 })
+
+const sessionOption = {
+    store: store,
+    secret: process.env.SECRET,
+    resave: false,
+    saveUninitialized: true,
+    cookie: {
+        expires: Date.now() + 7 * 24 * 60 * 60 * 1000,
+        maxAge: 7 * 24 * 60 * 60 * 1000,
+        httpOnly: true,
+    }
+};
+
+
+
+
+// app.get("/", (req, res) => {
+//     res.send("this is home route");
+// });
+
+app.use(session(sessionOption));
+app.use(flash());
+
+app.use(passport.initialize());
+app.use(passport.session());
+passport.use(new LocalStrategy(User.authenticate()));
+
+passport.serializeUser(User.serializeUser());
+passport.deserializeUser(User.deserializeUser());
+
+app.use((req, res, next) => {
+    res.locals.success = req.flash("success");
+    res.locals.error = req.flash("error");
+    res.locals.currUser = req.user;
+    next();
+})
+
+
+// app.get("/demoUser", async (req, res) => {
+//     let fakeUser = new User({
+//         email: "fakeUser@gmail.com",
+//         username: "fake user"
+//     });
+//     let registerdUser = await User.register(fakeUser, "helloWorld");
+//     res.send(registerdUser);
+// })
+
+app.use("/listings", listingRouter);
+app.use("/listings/:id/reviews", reviewRouter);
+app.use("/", userRouter);
 
 
 
